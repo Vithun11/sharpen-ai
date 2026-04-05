@@ -23,7 +23,7 @@ export default async function ClassesLayout({
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#F0FAFA' }}>
-      <Sidebar teacherName={teacherName} />
+      <Sidebar teacherName={teacherName} teacherEmail={session.user.email} />
       <main className="main">
         <div className="flex-1 min-h-screen">
           <div className="xl:grid xl:grid-cols-[1fr_300px] min-h-screen">

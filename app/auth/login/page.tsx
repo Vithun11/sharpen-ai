@@ -163,6 +163,28 @@ export default function LoginPage() {
             Sign up
           </Link>
         </p>
+
+        {/* Demo Account Hint */}
+        <div className="mt-8 p-4 rounded-lg flex flex-col items-center gap-2 text-sm" style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-teal-light)' }}>
+          <p className="font-medium" style={{ color: 'var(--text-primary)' }}>
+            🧪 Want to test the app?
+          </p>
+          <p style={{ color: 'var(--text-muted)' }} className="text-center">
+            Log in using the test credentials below:
+          </p>
+          <div className="flex flex-col items-center gap-1 mt-1 font-mono text-[13px]">
+            <span style={{ color: 'var(--text-primary)' }}><strong>Email:</strong> <code className="bg-gray-100 px-1.5 py-0.5 rounded">test@azmuth.app</code></span>
+            <span style={{ color: 'var(--text-primary)' }}><strong>Password:</strong> <code className="bg-gray-100 px-1.5 py-0.5 rounded">password</code></span>
+          </div>
+          <button
+            type="button"
+            onClick={() => { setEmail('test@azmuth.app'); setPassword('password'); }}
+            className="mt-2 text-xs font-medium px-4 py-2 rounded-md transition-colors"
+            style={{ backgroundColor: 'var(--color-teal-light)', color: 'var(--color-teal-dark)' }}
+          >
+            Auto-fill credentials
+          </button>
+        </div>
       </div>
     </div>
   )

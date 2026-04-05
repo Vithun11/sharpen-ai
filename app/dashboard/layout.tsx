@@ -29,7 +29,7 @@ export default async function DashboardLayout({
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#F0FAFA' }}>
-      <Sidebar teacherName={teacherName} />
+      <Sidebar teacherName={teacherName} teacherEmail={session.user.email} />
 
       {/* Main content — offset by sidebar width */}
       <main className="main">

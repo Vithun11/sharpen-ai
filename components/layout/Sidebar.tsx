@@ -4,10 +4,10 @@ import { useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
-import { LayoutDashboard, BookOpen, Users, LogOut, Menu, X } from 'lucide-react'
+import { LayoutDashboard, BookOpen, Users, LogOut, Menu, X, Download } from 'lucide-react'
 import { createClient } from '@/lib/supabase-browser'
 
-interface SidebarProps { teacherName: string }
+interface SidebarProps { teacherName: string, teacherEmail?: string }
 
 const navLinks = [
   { href: '/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
@@ -15,10 +15,12 @@ const navLinks = [
   { href: '/classes',   label: 'Classes',   Icon: BookOpen },
 ]
 
-export default function Sidebar({ teacherName }: SidebarProps) {
+export default function Sidebar({ teacherName, teacherEmail }: SidebarProps) {
   const pathname = usePathname()
   const router   = useRouter()
   const [mobileOpen, setMobileOpen] = useState(false)
+
+  const isDemoAccount = teacherEmail === 'test@azmuth.app'
 
   async function handleSignOut() {
     const supabase = createClient()
@@ -56,6 +58,30 @@ export default function Sidebar({ teacherName }: SidebarProps) {
         })}
       </nav>
       <div className="px-5 py-5" style={{ borderTop: '1px solid rgba(255,255,255,0.12)' }}>
+        {isDemoAccount && (
+          <div className="mb-4">
+            <a
+              href="/demo/sample_question_paper.pdf"
+              download
+              className="flex items-center gap-2 px-3 py-2 text-sm text-yellow-300 bg-white/10 rounded-md hover:bg-white/20 transition-colors mb-2"
+              style={{ fontFamily: 'var(--font-heading)', textDecoration: 'none' }}
+            >
+              <Download size={16} />
+              Question Paper
+              <span className="ml-auto text-[10px] bg-yellow-500/20 px-1.5 py-0.5 rounded text-yellow-500">DEMO</span>
+            </a>
+            <a
+              href="/demo/sample_answer_sheet.pdf"
+              download
+              className="flex items-center gap-2 px-3 py-2 text-sm text-yellow-300 bg-white/10 rounded-md hover:bg-white/20 transition-colors"
+              style={{ fontFamily: 'var(--font-heading)', textDecoration: 'none' }}
+            >
+              <Download size={16} />
+              Answer Sheet
+              <span className="ml-auto text-[10px] bg-yellow-500/20 px-1.5 py-0.5 rounded text-yellow-500">DEMO</span>
+            </a>
+          </div>
+        )}
         <p style={{ fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 600, color: '#E6F7F7', marginBottom: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{teacherName}</p>
         <p style={{ fontFamily: 'var(--font-body)', fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '16px' }}>Teacher</p>
         <button
