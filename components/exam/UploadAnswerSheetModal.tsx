@@ -50,44 +50,45 @@ export default function UploadAnswerSheetModal({ studentId, studentName, examId,
   const [loading, setLoading]     = useState(false)
   const [stepIdx, setStepIdx]     = useState(0)
   const [error, setError]         = useState<string | null>(null)
-  const [elapsed, setElapsed]     = useState(0)
+  const [showExtended, setShowExtended] = useState(false)
   const [factIdx, setFactIdx]     = useState(0)
   const [factVisible, setFactVisible] = useState(true)
   const fileInputRef              = useRef<HTMLInputElement>(null)
   const intervalRef               = useRef<NodeJS.Timeout | null>(null)
-  const elapsedRef                = useRef<NodeJS.Timeout | null>(null)
+  const extendedTimeoutRef        = useRef<NodeJS.Timeout | null>(null)
   const factIntervalRef           = useRef<NodeJS.Timeout | null>(null)
 
   // Cycle loading step messages every 4s (loop on last step)
+  // After 30s: reveal the extra-computation banner + rotating facts
   useEffect(() => {
     if (loading) {
       intervalRef.current = setInterval(() => {
         setStepIdx((i) => (i < LOADING_STEPS.length - 1 ? i + 1 : i))
       }, 4000)
-      // Elapsed timer
-      elapsedRef.current = setInterval(() => {
-        setElapsed((s) => s + 1)
-      }, 1000)
-      // Rotating facts with fade transition every 6s
-      factIntervalRef.current = setInterval(() => {
-        setFactVisible(false)
-        setTimeout(() => {
-          setFactIdx((i) => (i + 1) % INTERESTING_FACTS.length)
-          setFactVisible(true)
-        }, 400)
-      }, 6000)
+      // After 30s, show extended mode (banner + facts)
+      extendedTimeoutRef.current = setTimeout(() => {
+        setShowExtended(true)
+        // Start rotating facts once extended mode kicks in
+        factIntervalRef.current = setInterval(() => {
+          setFactVisible(false)
+          setTimeout(() => {
+            setFactIdx((i) => (i + 1) % INTERESTING_FACTS.length)
+            setFactVisible(true)
+          }, 400)
+        }, 6000)
+      }, 30000)
     } else {
       if (intervalRef.current) clearInterval(intervalRef.current)
-      if (elapsedRef.current) clearInterval(elapsedRef.current)
+      if (extendedTimeoutRef.current) clearTimeout(extendedTimeoutRef.current)
       if (factIntervalRef.current) clearInterval(factIntervalRef.current)
       setStepIdx(0)
-      setElapsed(0)
+      setShowExtended(false)
       setFactIdx(0)
       setFactVisible(true)
     }
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
-      if (elapsedRef.current) clearInterval(elapsedRef.current)
+      if (extendedTimeoutRef.current) clearTimeout(extendedTimeoutRef.current)
       if (factIntervalRef.current) clearInterval(factIntervalRef.current)
     }
   }, [loading])
@@ -226,9 +227,7 @@ export default function UploadAnswerSheetModal({ studentId, studentName, examId,
                   <circle className="ring-fill"  cx="36" cy="36" r="28" strokeWidth="5" fill="none" strokeLinecap="round" />
                 </svg>
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', fontWeight: 700, color: 'var(--color-teal)' }}>
-                    {elapsed}s
-                  </span>
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: 'var(--color-teal)', opacity: 0.5 }} />
                 </div>
               </div>
 
@@ -252,8 +251,8 @@ export default function UploadAnswerSheetModal({ studentId, studentName, examId,
                 ))}
               </div>
 
-              {/* "Taking extra computation" banner — appears after 20s */}
-              {elapsed >= 20 && (
+              {/* "Taking extra computation" banner — appears after 30s */}
+              {showExtended && (
                 <div
                   style={{
                     display: 'flex', alignItems: 'flex-start', gap: '10px',
@@ -276,29 +275,31 @@ export default function UploadAnswerSheetModal({ studentId, studentName, examId,
                 </div>
               )}
 
-              {/* Rotating interesting fact card */}
-              <div
-                style={{
-                  backgroundColor: 'var(--color-teal-light)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: '10px', padding: '14px 16px',
-                  width: '100%', textAlign: 'left',
-                  transition: 'opacity 400ms ease, transform 400ms ease',
-                  opacity: factVisible ? 1 : 0,
-                  transform: factVisible ? 'translateY(0)' : 'translateY(6px)',
-                }}
-              >
-                <p style={{ fontFamily: 'var(--font-body)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--color-teal)', marginBottom: '6px' }}>
-                  💡 Did you know?
-                </p>
-                <p style={{ fontFamily: 'var(--font-body)', fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.6 }}>
-                  <span style={{ fontSize: '16px', marginRight: '6px' }}>{INTERESTING_FACTS[factIdx].emoji}</span>
-                  {INTERESTING_FACTS[factIdx].fact}
-                </p>
-              </div>
+              {/* Rotating interesting fact card — only after 30s */}
+              {showExtended && (
+                <div
+                  style={{
+                    backgroundColor: 'var(--color-teal-light)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: '10px', padding: '14px 16px',
+                    width: '100%', textAlign: 'left',
+                    transition: 'opacity 400ms ease, transform 400ms ease',
+                    opacity: factVisible ? 1 : 0,
+                    transform: factVisible ? 'translateY(0)' : 'translateY(6px)',
+                  }}
+                >
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--color-teal)', marginBottom: '6px' }}>
+                    💡 Did you know?
+                  </p>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.6 }}>
+                    <span style={{ fontSize: '16px', marginRight: '6px' }}>{INTERESTING_FACTS[factIdx].emoji}</span>
+                    {INTERESTING_FACTS[factIdx].fact}
+                  </p>
+                </div>
+              )}
 
               <p style={{ fontFamily: 'var(--font-body)', fontSize: '12px', color: 'var(--text-faint)', marginTop: '14px' }}>
-                {elapsed < 20 ? 'AI analysis typically takes 20–50 seconds.' : `Analyzing for ${elapsed}s — please don't close this window.`}
+                AI analysis may take up to a minute. Please don't close this window.
               </p>
             </div>
           ) : (
