@@ -1,15 +1,30 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Upload, X, FileText, AlertCircle } from 'lucide-react'
+import { Upload, X, FileText, AlertCircle, Zap } from 'lucide-react'
 import { uploadFilesToStorage } from '@/lib/upload-to-storage'
 
 const LOADING_STEPS = [
   'Uploading answer sheet...',
   "Reading student's handwriting...",
   'Analyzing reasoning patterns...',
-  'Generating cognitive profile...',
-  'Almost done...',
+  'Building cognitive profile...',
+  'Cross-referencing question bank...',
+  'Generating insights...',
+  'Finalizing report...',
+]
+
+const INTERESTING_FACTS = [
+  { emoji: '🧠', fact: 'Spaced repetition can improve long-term retention by up to 80% compared to cramming.' },
+  { emoji: '✍️', fact: 'Handwriting analysis can reveal cognitive load — denser, messier writing often signals higher mental effort.' },
+  { emoji: '📊', fact: 'Research shows immediate, specific feedback after a test improves learning outcomes more than the score alone.' },
+  { emoji: '🔍', fact: 'AI can detect subtle error patterns across hundreds of answers that human graders might miss in large classrooms.' },
+  { emoji: '💡', fact: 'Students who understand *why* they got a question wrong learn 40% more effectively than those who only see the correct answer.' },
+  { emoji: '🎯', fact: 'Targeted remediation based on topic-level weaknesses can raise scores by 15–25% in a single revision cycle.' },
+  { emoji: '📝', fact: 'The average teacher spends 8+ hours per week on grading. AI-assisted grading can reclaim that time for teaching.' },
+  { emoji: '🌱', fact: 'A growth mindset — believing ability can improve — is one of the strongest predictors of academic success.' },
+  { emoji: '📚', fact: 'Interleaved practice (mixing topics) leads to better mastery than blocked practice, even though it feels harder.' },
+  { emoji: '🤖', fact: 'Modern AI can process handwritten text almost as accurately as trained human readers — at 100× the speed.' },
 ]
 
 interface Props {
@@ -30,25 +45,51 @@ export interface AnalysisResult {
 }
 
 export default function UploadAnswerSheetModal({ studentId, studentName, examId, onClose, onAnalyzed }: Props) {
-  const [files, setFiles]       = useState<File[]>([])
-  const [dragging, setDragging] = useState(false)
-  const [loading, setLoading]   = useState(false)
-  const [stepIdx, setStepIdx]   = useState(0)
-  const [error, setError]       = useState<string | null>(null)
-  const fileInputRef            = useRef<HTMLInputElement>(null)
-  const intervalRef             = useRef<NodeJS.Timeout | null>(null)
+  const [files, setFiles]         = useState<File[]>([])
+  const [dragging, setDragging]   = useState(false)
+  const [loading, setLoading]     = useState(false)
+  const [stepIdx, setStepIdx]     = useState(0)
+  const [error, setError]         = useState<string | null>(null)
+  const [elapsed, setElapsed]     = useState(0)
+  const [factIdx, setFactIdx]     = useState(0)
+  const [factVisible, setFactVisible] = useState(true)
+  const fileInputRef              = useRef<HTMLInputElement>(null)
+  const intervalRef               = useRef<NodeJS.Timeout | null>(null)
+  const elapsedRef                = useRef<NodeJS.Timeout | null>(null)
+  const factIntervalRef           = useRef<NodeJS.Timeout | null>(null)
 
-  // Cycle loading messages every 3s
+  // Cycle loading step messages every 4s (loop on last step)
   useEffect(() => {
     if (loading) {
       intervalRef.current = setInterval(() => {
-        setStepIdx((i) => Math.min(i + 1, LOADING_STEPS.length - 1))
-      }, 3000)
+        setStepIdx((i) => (i < LOADING_STEPS.length - 1 ? i + 1 : i))
+      }, 4000)
+      // Elapsed timer
+      elapsedRef.current = setInterval(() => {
+        setElapsed((s) => s + 1)
+      }, 1000)
+      // Rotating facts with fade transition every 6s
+      factIntervalRef.current = setInterval(() => {
+        setFactVisible(false)
+        setTimeout(() => {
+          setFactIdx((i) => (i + 1) % INTERESTING_FACTS.length)
+          setFactVisible(true)
+        }, 400)
+      }, 6000)
     } else {
       if (intervalRef.current) clearInterval(intervalRef.current)
+      if (elapsedRef.current) clearInterval(elapsedRef.current)
+      if (factIntervalRef.current) clearInterval(factIntervalRef.current)
       setStepIdx(0)
+      setElapsed(0)
+      setFactIdx(0)
+      setFactVisible(true)
     }
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+      if (elapsedRef.current) clearInterval(elapsedRef.current)
+      if (factIntervalRef.current) clearInterval(factIntervalRef.current)
+    }
   }, [loading])
 
   function handleFileSelect(selectedFiles: FileList | File[]) {
@@ -169,29 +210,95 @@ export default function UploadAnswerSheetModal({ studentId, studentName, examId,
         {/* Body */}
         <div className="px-8 py-6 overflow-y-auto flex-1">
           {loading ? (
-            /* Loading state */
-            <div className="flex flex-col items-center justify-center py-8 text-center bg-[var(--color-teal-light)] rounded-[12px] border border-[var(--color-border)]">
-              <div className="mb-5">
-                <Spinner />
+            /* ── Dynamic Loading State ── */
+            <div className="flex flex-col items-center py-6 text-center">
+              <style>{`
+                @keyframes spin-ring { to { stroke-dashoffset: -220; } }
+                @keyframes pulse-badge { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.8; transform:scale(1.03); } }
+                .ring-track { stroke: var(--color-border); }
+                .ring-fill  { stroke: var(--color-teal); stroke-dasharray: 176 220; stroke-dashoffset: 0; animation: spin-ring 1.8s linear infinite; transform-origin: center; transform-box: fill-box; }
+              `}</style>
+
+              {/* SVG Progress Ring */}
+              <div style={{ position: 'relative', width: 72, height: 72, marginBottom: 20 }}>
+                <svg width="72" height="72" viewBox="0 0 72 72" fill="none" style={{ transform: 'rotate(-90deg)' }}>
+                  <circle className="ring-track" cx="36" cy="36" r="28" strokeWidth="5" fill="none" />
+                  <circle className="ring-fill"  cx="36" cy="36" r="28" strokeWidth="5" fill="none" strokeLinecap="round" />
+                </svg>
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', fontWeight: 700, color: 'var(--color-teal)' }}>
+                    {elapsed}s
+                  </span>
+                </div>
               </div>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>
+
+              {/* Step text */}
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '10px', minHeight: '24px' }}>
                 {LOADING_STEPS[stepIdx]}
               </p>
-              <div className="flex gap-1.5 mt-3 mb-2">
+
+              {/* Step dots */}
+              <div className="flex gap-1.5 mb-5">
                 {LOADING_STEPS.map((_, i) => (
                   <div
                     key={i}
                     className="rounded-full transition-all duration-500"
                     style={{
-                      width: i === stepIdx ? '24px' : '6px',
+                      width: i === stepIdx ? '22px' : '6px',
                       height: '6px',
                       backgroundColor: i <= stepIdx ? 'var(--color-teal)' : 'var(--color-border)',
                     }}
                   />
                 ))}
               </div>
-              <p style={{ fontFamily: 'var(--font-body)', fontSize: '13px', color: 'var(--text-muted)', marginTop: '16px' }}>
-                AI analysis takes 10–20 seconds. Please wait…
+
+              {/* "Taking extra computation" banner — appears after 20s */}
+              {elapsed >= 20 && (
+                <div
+                  style={{
+                    display: 'flex', alignItems: 'flex-start', gap: '10px',
+                    backgroundColor: 'var(--color-score-mid-bg)',
+                    border: '1px solid var(--color-yellow)',
+                    borderRadius: '10px', padding: '10px 14px',
+                    marginBottom: '16px', width: '100%', textAlign: 'left',
+                    animation: 'pulse-badge 2.4s ease-in-out infinite',
+                  }}
+                >
+                  <Zap size={16} color="var(--color-yellow-dark)" style={{ flexShrink: 0, marginTop: 2 }} />
+                  <div>
+                    <p style={{ fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 700, color: 'var(--color-yellow-dark)', marginBottom: '2px' }}>
+                      Taking a little extra computation
+                    </p>
+                    <p style={{ fontFamily: 'var(--font-body)', fontSize: '12px', color: 'var(--color-score-mid-text)', lineHeight: 1.5 }}>
+                      Complex handwriting or multi-page sheets take longer. Hang tight — we're almost there!
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Rotating interesting fact card */}
+              <div
+                style={{
+                  backgroundColor: 'var(--color-teal-light)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: '10px', padding: '14px 16px',
+                  width: '100%', textAlign: 'left',
+                  transition: 'opacity 400ms ease, transform 400ms ease',
+                  opacity: factVisible ? 1 : 0,
+                  transform: factVisible ? 'translateY(0)' : 'translateY(6px)',
+                }}
+              >
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--color-teal)', marginBottom: '6px' }}>
+                  💡 Did you know?
+                </p>
+                <p style={{ fontFamily: 'var(--font-body)', fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.6 }}>
+                  <span style={{ fontSize: '16px', marginRight: '6px' }}>{INTERESTING_FACTS[factIdx].emoji}</span>
+                  {INTERESTING_FACTS[factIdx].fact}
+                </p>
+              </div>
+
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: '12px', color: 'var(--text-faint)', marginTop: '14px' }}>
+                {elapsed < 20 ? 'AI analysis typically takes 20–50 seconds.' : `Analyzing for ${elapsed}s — please don't close this window.`}
               </p>
             </div>
           ) : (
@@ -293,11 +400,3 @@ export default function UploadAnswerSheetModal({ studentId, studentName, examId,
   )
 }
 
-function Spinner() {
-  return (
-    <div
-      className="animate-spin rounded-full"
-      style={{ width: 40, height: 40, border: '3px solid var(--color-border)', borderTopColor: 'var(--color-teal)' }}
-    />
-  )
-}
