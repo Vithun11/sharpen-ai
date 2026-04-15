@@ -8,7 +8,7 @@ export const maxDuration = 60
 // ─── Universal AI provider config ──────────────────────────
 const AI_PROVIDER = process.env.AI_PROVIDER ?? 'anthropic'
 const AI_API_KEY  = process.env.AI_API_KEY ?? process.env.ANTHROPIC_API_KEY ?? ''
-const AI_MODEL    = process.env.AI_MODEL ?? 'claude-sonnet-4-20250514'
+const AI_MODEL    = process.env.AI_MODEL ?? 'claude-sonnet-4-6'
 
 const EXTRACT_PROMPT = `Extract all questions from this exam paper. For each question return:
 - question_number (integer starting from 1)

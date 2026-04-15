@@ -59,7 +59,7 @@ async function callAI(base64: string, mimeType: string, prompt: string, attempt:
       signal: controller.signal,
       headers: { 'x-api-key': apiKey!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
       body: JSON.stringify({
-        model: model || 'claude-sonnet-4-20250514',
+        model: model || 'claude-sonnet-4-6',
         max_tokens: 4096,
         system: 'You are an expert educational analyst. Analyze student exam answers with precision and generate structured learning insights.',
         messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } }, { type: 'text', text: fullPrompt }] }],

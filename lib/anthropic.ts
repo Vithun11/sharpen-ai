@@ -6,7 +6,7 @@ export const anthropic = new Anthropic({
 })
 
 // Default model to use for all analysis
-export const DEFAULT_MODEL = 'claude-sonnet-4-20250514'
+export const DEFAULT_MODEL = 'claude-sonnet-4-6'
 
 // Timeout in milliseconds for AI analysis requests
 export const ANALYSIS_TIMEOUT_MS = 30_000

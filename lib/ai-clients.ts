@@ -9,6 +9,6 @@ export const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY
 })
 
-export const SONNET = "claude-sonnet-4-20250514"
+export const SONNET = "claude-sonnet-4-6"
 export const HAIKU = "claude-haiku-4-5-20251001"
 export const GROQ_MODEL = "llama-3.3-70b-versatile"
