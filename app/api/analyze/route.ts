@@ -342,10 +342,11 @@ export async function POST(request: Request) {
 
     // ── Step 1: Call Claude API ──────────────────────────────
     let rawResponseText: string
+    let wasTruncated = false
     try {
       const response = await anthropic.messages.create({
         model: SONNET,
-        max_tokens: 8192,
+        max_tokens: 16384,
         messages: [
           {
             role: "user",
@@ -361,13 +362,21 @@ export async function POST(request: Request) {
         ]
       })
 
+      // Detect if response was truncated due to max_tokens
+      wasTruncated = response.stop_reason === 'max_tokens'
+      if (wasTruncated) {
+        console.warn('[analyze] WARNING: Response was truncated (hit max_tokens). Will attempt JSON repair.')
+      }
+
       rawResponseText = response.content
         .filter((block: any) => block.type === "text")
         .map((block: any) => block.text)
         .join("")
 
       console.log('[analyze] Claude response length:', rawResponseText.length)
+      console.log('[analyze] Claude stop_reason:', response.stop_reason)
       console.log('[analyze] Claude response preview:', rawResponseText.substring(0, 300))
+      console.log('[analyze] Claude response tail:', rawResponseText.substring(Math.max(0, rawResponseText.length - 200)))
 
       if (!rawResponseText || rawResponseText.length < 50) {
         console.error('[analyze] Claude returned empty or too-short response:', rawResponseText)
@@ -393,10 +402,9 @@ export async function POST(request: Request) {
 
       // Attempt to extract JSON object if Claude added commentary around it
       const jsonStart = cleanText.indexOf('{')
-      const jsonEnd = cleanText.lastIndexOf('}')
-      if (jsonStart > 0 && jsonEnd > jsonStart) {
+      if (jsonStart > 0) {
         console.log('[analyze] JSON does not start at position 0 — extracting from position', jsonStart)
-        cleanText = cleanText.substring(jsonStart, jsonEnd + 1)
+        cleanText = cleanText.substring(jsonStart)
       }
 
       // Fix common JSON issues: trailing commas before } or ]
@@ -404,13 +412,48 @@ export async function POST(request: Request) {
         .replace(/,\s*}/g, '}')
         .replace(/,\s*]/g, ']')
 
+      // If response was truncated, attempt to repair the JSON
+      if (wasTruncated || !cleanText.endsWith('}')) {
+        console.log('[analyze] Attempting truncated JSON repair...')
+        
+        // Remove any trailing incomplete string value (cut mid-string)
+        cleanText = cleanText.replace(/,?\s*"[^"]*":\s*"[^"]*$/, '')
+        // Remove trailing incomplete key
+        cleanText = cleanText.replace(/,?\s*"[^"]*":\s*$/, '')
+        // Remove trailing comma
+        cleanText = cleanText.replace(/,\s*$/, '')
+        
+        // Count unclosed brackets and braces, then close them
+        let openBraces = 0
+        let openBrackets = 0
+        let inString = false
+        let escaped = false
+        for (const ch of cleanText) {
+          if (escaped) { escaped = false; continue }
+          if (ch === '\\') { escaped = true; continue }
+          if (ch === '"') { inString = !inString; continue }
+          if (inString) continue
+          if (ch === '{') openBraces++
+          else if (ch === '}') openBraces--
+          else if (ch === '[') openBrackets++
+          else if (ch === ']') openBrackets--
+        }
+        
+        // Close any unclosed structures
+        for (let i = 0; i < openBrackets; i++) cleanText += ']'
+        for (let i = 0; i < openBraces; i++) cleanText += '}'
+        
+        console.log('[analyze] Repaired JSON — closed', openBrackets, 'brackets and', openBraces, 'braces')
+      }
+
       analysis = JSON.parse(cleanText)
 
       analysis = enforceStudentName(analysis, studentName)
       analysis = recomputeScore(analysis)
       analysis = fixSkippedQuestions(analysis)
     } catch (parseErr: any) {
-      console.error('[analyze] JSON parse failed. Raw response (first 1000 chars):', rawResponseText.substring(0, 1000))
+      console.error('[analyze] JSON parse failed. Response length:', rawResponseText.length)
+      console.error('[analyze] Response tail (last 500 chars):', rawResponseText.substring(Math.max(0, rawResponseText.length - 500)))
       console.error('[analyze] Parse error:', parseErr?.message)
       return NextResponse.json(
         { error: 'The AI read the answer sheet but produced a malformed response. Please try again — this is usually a one-time issue.' },
