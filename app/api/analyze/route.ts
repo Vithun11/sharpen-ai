@@ -136,7 +136,7 @@ async function storagePathsToBase64Images(
     const isPdf = path.toLowerCase().endsWith('.pdf') || data.type === 'application/pdf'
 
     if (isPdf) {
-      const document = await pdf(buffer, { scale: 2.0 })
+      const document = await pdf(buffer, { scale: 3.0 })
       for await (const page of document) {
         results.push({
           base64: page.toString('base64'),
@@ -305,35 +305,44 @@ export async function POST(request: Request) {
     // ── Call Anthropic (Sonnet) ───────────────────────────────
     let analysis: Record<string, unknown>
 
+    const imageBlocks = pages.map(page => ({
+      type: "image" as const,
+      source: {
+        type: "base64" as const,
+        media_type: page.mediaType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+        data: page.base64
+      }
+    }))
+
+    const multiPageNote = pages.length > 1
+       ? `\n\nNOTE: This answer sheet spans ${pages.length} pages. All pages are provided above in order. Analyse all pages as one continuous answer booklet. Questions may continue across pages.`
+       : ''
+
+    const studentNameInstruction = studentName
+      ? `\nCRITICAL — STUDENT IDENTITY:\n` +
+        `The student being analysed is: ` +
+        `${studentName}\n` +
+        `Use ONLY this name everywhere in ` +
+        `the JSON output where a student ` +
+        `name appears.\n` +
+        `Never use any other name.\n` +
+        `Never use a name from any previous ` +
+        `analysis or context.\n`
+      : `\nSTUDENT IDENTITY:\n` +
+        `Student name is not available.\n` +
+        `Use "this student" wherever a name ` +
+        `would appear.\n`
+
+    const promptText = ANALYSIS_PROMPT
+      .replace('{syllabus_type}', syllabusType || 'Not specified')
+      .replace('{class_standard}', classStandard || 'Not specified')
+      + studentNameInstruction
+      + multiPageNote
+      + "\n\nEXTRACTED QUESTIONS:\n" + JSON.stringify(questions, null, 2)
+
+    // ── Step 1: Call Claude API ──────────────────────────────
+    let rawResponseText: string
     try {
-      const imageBlocks = pages.map(page => ({
-        type: "image" as const,
-        source: {
-          type: "base64" as const,
-          media_type: page.mediaType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
-          data: page.base64
-        }
-      }))
-
-      const multiPageNote = pages.length > 1
-         ? `\n\nNOTE: This answer sheet spans ${pages.length} pages. All pages are provided above in order. Analyse all pages as one continuous answer booklet. Questions may continue across pages.`
-         : ''
-
-      const studentNameInstruction = studentName
-        ? `\nCRITICAL — STUDENT IDENTITY:\n` +
-          `The student being analysed is: ` +
-          `${studentName}\n` +
-          `Use ONLY this name everywhere in ` +
-          `the JSON output where a student ` +
-          `name appears.\n` +
-          `Never use any other name.\n` +
-          `Never use a name from any previous ` +
-          `analysis or context.\n`
-        : `\nSTUDENT IDENTITY:\n` +
-          `Student name is not available.\n` +
-          `Use "this student" wherever a name ` +
-          `would appear.\n`
-
       const response = await anthropic.messages.create({
         model: SONNET,
         max_tokens: 8192,
@@ -344,12 +353,7 @@ export async function POST(request: Request) {
               ...imageBlocks,
               {
                 type: "text",
-                text: ANALYSIS_PROMPT
-                  .replace('{syllabus_type}', syllabusType || 'Not specified')
-                  .replace('{class_standard}', classStandard || 'Not specified')
-                  + studentNameInstruction
-                  + multiPageNote
-                  + "\n\nEXTRACTED QUESTIONS:\n" + JSON.stringify(questions, null, 2),
+                text: promptText,
                 cache_control: { type: "ephemeral" }
               }
             ]
@@ -357,26 +361,60 @@ export async function POST(request: Request) {
         ]
       })
 
-      const analysisText = response.content
+      rawResponseText = response.content
         .filter((block: any) => block.type === "text")
         .map((block: any) => block.text)
         .join("")
 
-      const cleanText = analysisText
+      console.log('[analyze] Claude response length:', rawResponseText.length)
+      console.log('[analyze] Claude response preview:', rawResponseText.substring(0, 300))
+
+      if (!rawResponseText || rawResponseText.length < 50) {
+        console.error('[analyze] Claude returned empty or too-short response:', rawResponseText)
+        return NextResponse.json(
+          { error: 'The AI could not read the answer sheet. The image may be too blurry or dark. Please upload a clearer scan.' },
+          { status: 422 }
+        )
+      }
+    } catch (apiErr: any) {
+      console.error('[analyze] Anthropic API error:', apiErr?.message || apiErr)
+      return NextResponse.json(
+        { error: 'AI service temporarily unavailable. Please try again in a moment.' },
+        { status: 503 }
+      )
+    }
+
+    // ── Step 2: Parse JSON from response ─────────────────────
+    try {
+      let cleanText = rawResponseText
         .replace(/```json/g, '')
         .replace(/```/g, '')
         .trim()
 
+      // Attempt to extract JSON object if Claude added commentary around it
+      const jsonStart = cleanText.indexOf('{')
+      const jsonEnd = cleanText.lastIndexOf('}')
+      if (jsonStart > 0 && jsonEnd > jsonStart) {
+        console.log('[analyze] JSON does not start at position 0 — extracting from position', jsonStart)
+        cleanText = cleanText.substring(jsonStart, jsonEnd + 1)
+      }
+
+      // Fix common JSON issues: trailing commas before } or ]
+      cleanText = cleanText
+        .replace(/,\s*}/g, '}')
+        .replace(/,\s*]/g, ']')
+
       analysis = JSON.parse(cleanText)
-      
+
       analysis = enforceStudentName(analysis, studentName)
       analysis = recomputeScore(analysis)
       analysis = fixSkippedQuestions(analysis)
-    } catch (err) {
-      console.error('[analyze] AI call failed:', err)
+    } catch (parseErr: any) {
+      console.error('[analyze] JSON parse failed. Raw response (first 1000 chars):', rawResponseText.substring(0, 1000))
+      console.error('[analyze] Parse error:', parseErr?.message)
       return NextResponse.json(
-        { error: 'Could not read the answer sheet clearly. Please try a clearer image.' },
-        { status: 500 }
+        { error: 'The AI read the answer sheet but produced a malformed response. Please try again — this is usually a one-time issue.' },
+        { status: 422 }
       )
     }
 
