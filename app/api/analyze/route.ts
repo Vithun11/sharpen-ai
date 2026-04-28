@@ -136,7 +136,7 @@ async function storagePathsToBase64Images(
     const isPdf = path.toLowerCase().endsWith('.pdf') || data.type === 'application/pdf'
 
     if (isPdf) {
-      const document = await pdf(buffer, { scale: 3.0 })
+      const document = await pdf(buffer, { scale: 2.0 })
       for await (const page of document) {
         results.push({
           base64: page.toString('base64'),
@@ -358,6 +358,10 @@ export async function POST(request: Request) {
                 cache_control: { type: "ephemeral" }
               }
             ]
+          },
+          {
+            role: "assistant",
+            content: "{"
           }
         ]
       })
@@ -368,15 +372,18 @@ export async function POST(request: Request) {
         console.warn('[analyze] WARNING: Response was truncated (hit max_tokens). Will attempt JSON repair.')
       }
 
-      rawResponseText = response.content
+      const responseText = response.content
         .filter((block: any) => block.type === "text")
         .map((block: any) => block.text)
         .join("")
 
+      // Prepend the '{' we used as prefill since Claude continues from it
+      rawResponseText = '{' + responseText
+
       console.log('[analyze] Claude response length:', rawResponseText.length)
       console.log('[analyze] Claude stop_reason:', response.stop_reason)
-      console.log('[analyze] Claude response preview:', rawResponseText.substring(0, 300))
-      console.log('[analyze] Claude response tail:', rawResponseText.substring(Math.max(0, rawResponseText.length - 200)))
+      console.log('[analyze] Claude response preview:', rawResponseText.substring(0, 500))
+      console.log('[analyze] Claude response tail:', rawResponseText.substring(Math.max(0, rawResponseText.length - 300)))
 
       if (!rawResponseText || rawResponseText.length < 50) {
         console.error('[analyze] Claude returned empty or too-short response:', rawResponseText)
@@ -394,13 +401,13 @@ export async function POST(request: Request) {
     }
 
     // ── Step 2: Parse JSON from response ─────────────────────
-    try {
-      let cleanText = rawResponseText
+    const parseJsonResponse = (text: string): Record<string, unknown> => {
+      let cleanText = text
         .replace(/```json/g, '')
         .replace(/```/g, '')
         .trim()
 
-      // Attempt to extract JSON object if Claude added commentary around it
+      // Extract JSON object if there's commentary around it
       const jsonStart = cleanText.indexOf('{')
       if (jsonStart > 0) {
         console.log('[analyze] JSON does not start at position 0 — extracting from position', jsonStart)
@@ -416,18 +423,32 @@ export async function POST(request: Request) {
       if (wasTruncated || !cleanText.endsWith('}')) {
         console.log('[analyze] Attempting truncated JSON repair...')
         
-        // Remove any trailing incomplete string value (cut mid-string)
+        // Remove any unterminated string (cut mid-string)
+        // Find if we're inside an unclosed string
+        let inStr = false
+        let lastGoodPos = cleanText.length
+        for (let i = 0; i < cleanText.length; i++) {
+          if (cleanText[i] === '\\' && inStr) { i++; continue }
+          if (cleanText[i] === '"') inStr = !inStr
+        }
+        if (inStr) {
+          // We're inside an unclosed string — find the last quote and truncate after closing it
+          const lastQuote = cleanText.lastIndexOf('"')
+          cleanText = cleanText.substring(0, lastQuote + 1)
+          // Remove the incomplete key-value pair
+          cleanText = cleanText.replace(/,?\s*"[^"]*"\s*$/, '')
+        }
+        
+        // Remove trailing incomplete key-value patterns
         cleanText = cleanText.replace(/,?\s*"[^"]*":\s*"[^"]*$/, '')
-        // Remove trailing incomplete key
         cleanText = cleanText.replace(/,?\s*"[^"]*":\s*$/, '')
-        // Remove trailing comma
         cleanText = cleanText.replace(/,\s*$/, '')
         
         // Count unclosed brackets and braces, then close them
         let openBraces = 0
         let openBrackets = 0
-        let inString = false
         let escaped = false
+        let inString = false
         for (const ch of cleanText) {
           if (escaped) { escaped = false; continue }
           if (ch === '\\') { escaped = true; continue }
@@ -439,27 +460,61 @@ export async function POST(request: Request) {
           else if (ch === ']') openBrackets--
         }
         
-        // Close any unclosed structures
         for (let i = 0; i < openBrackets; i++) cleanText += ']'
         for (let i = 0; i < openBraces; i++) cleanText += '}'
         
         console.log('[analyze] Repaired JSON — closed', openBrackets, 'brackets and', openBraces, 'braces')
       }
 
-      analysis = JSON.parse(cleanText)
-
-      analysis = enforceStudentName(analysis, studentName)
-      analysis = recomputeScore(analysis)
-      analysis = fixSkippedQuestions(analysis)
-    } catch (parseErr: any) {
-      console.error('[analyze] JSON parse failed. Response length:', rawResponseText.length)
-      console.error('[analyze] Response tail (last 500 chars):', rawResponseText.substring(Math.max(0, rawResponseText.length - 500)))
-      console.error('[analyze] Parse error:', parseErr?.message)
-      return NextResponse.json(
-        { error: 'The AI read the answer sheet but produced a malformed response. Please try again — this is usually a one-time issue.' },
-        { status: 422 }
-      )
+      return JSON.parse(cleanText)
     }
+
+    // First attempt to parse
+    try {
+      analysis = parseJsonResponse(rawResponseText)
+    } catch (firstParseErr: any) {
+      console.error('[analyze] First JSON parse failed:', firstParseErr?.message)
+      console.error('[analyze] Response tail (last 500 chars):', rawResponseText.substring(Math.max(0, rawResponseText.length - 500)))
+      
+      // Retry: Ask Haiku to fix the malformed JSON
+      console.log('[analyze] Attempting JSON repair via Haiku...')
+      try {
+        const repairResponse = await anthropic.messages.create({
+          model: HAIKU,
+          max_tokens: 16384,
+          messages: [
+            {
+              role: "user",
+              content: `The following is a truncated or malformed JSON response from an AI analysis. Fix it into valid JSON. Only output the corrected JSON, nothing else. If data is clearly cut off, close all open structures properly. Do not invent data — just make it valid JSON.\n\n${rawResponseText}`
+            },
+            {
+              role: "assistant",
+              content: "{"
+            }
+          ]
+        })
+
+        const repairedText = '{' + repairResponse.content
+          .filter((block: any) => block.type === "text")
+          .map((block: any) => block.text)
+          .join("")
+        
+        console.log('[analyze] Haiku repair response length:', repairedText.length)
+        analysis = parseJsonResponse(repairedText)
+        console.log('[analyze] Haiku repair succeeded!')
+      } catch (repairErr: any) {
+        console.error('[analyze] Haiku repair also failed:', repairErr?.message)
+        return NextResponse.json(
+          { error: 'The AI read the answer sheet but produced a malformed response. Please try again — this is usually a one-time issue.' },
+          { status: 422 }
+        )
+      }
+    }
+
+    // Post-process the analysis
+    analysis = enforceStudentName(analysis, studentName)
+    analysis = recomputeScore(analysis)
+    analysis = fixSkippedQuestions(analysis)
 
     // ── Save to student_results ──────────────────────────────
     const { data: result, error: saveErr } = await supabase
