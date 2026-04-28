@@ -620,7 +620,7 @@ export default function StudentReportClient({ student, exam, className, classId,
             <div style={{ backgroundColor: 'var(--color-surface)', padding: '12px', borderRadius: '8px', border: '1px solid var(--color-teal-light)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 600 }}>
                 <span>Overall Exam Score</span>
-                <span style={{ color: 'var(--color-score-strong-text)' }}>+{cascading_impact.estimated_score_after_fix - cascading_impact.current_exam_score_percent} points</span>
+                <span style={{ color: 'var(--color-score-strong-text)' }}>+{Math.round(cascading_impact.estimated_score_after_fix - cascading_impact.current_exam_score_percent)} points</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -638,7 +638,7 @@ export default function StudentReportClient({ student, exam, className, classId,
               <div key={i}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontFamily: 'var(--font-body)', fontSize: '12px', fontWeight: 500 }}>
                   <span>{am.metric_name}</span>
-                  <span style={{ color: 'var(--color-score-strong-text)' }}>+{am.estimated_new_score - am.current_score} points</span>
+                  <span style={{ color: 'var(--color-score-strong-text)' }}>+{Math.round(am.estimated_new_score - am.current_score)} points</span>
                 </div>
                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '4px' }}>
                   <div style={{ width: '100%', height: '8px', position: 'relative' }}>
